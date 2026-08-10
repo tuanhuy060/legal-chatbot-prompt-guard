@@ -1,0 +1,122 @@
+                 USER
+                  │
+                  ▼
+        ┌───────────────────┐
+        │ Injection Detector│
+        └───────────────────┘
+             │         │
+           Safe      Attack
+             │         │
+             ▼         ▼
+      Query Processing Block
+             │
+             ▼
+         Embedding
+             │
+             ▼
+         Vector DB
+             │
+             ▼
+        Top-K Retrieval
+             │
+             ▼
+     ┌─────────────────────┐
+     │ Retrieved Document  │
+     │ Security / Sanitizer│
+     └─────────────────────┘
+             │
+             ▼
+          Reranker
+             │
+             ▼
+       Context Builder
+             │
+             ▼
+      System Prompt + Context
+             │
+             ▼
+            LLM
+             │
+             ▼
+       Output Validator
+             │
+             ▼
+    Answer + Legal Citations
+
+
+===================================================
+
+DATASET PHÁP LUẬT
+
+PDF
+ |
+Text extraction
+ |
+Cleaning
+ |
+Chunking
+ |
+Embedding
+ |
+Vector DB
+
+====================================================
+
+Input:
+
+User Prompt
+
+↓
+
+Feature extraction
+
+↓
+
+Classifier
+
+↓
+
+Risk score
+
+
+============================================================
+KẾT QUẢ LỌC VÀ LÀM SẠCH DỮ LIỆU
+============================================================
+Tổng bản ghi JSONL:          170,824
+Còn hiệu lực:                64,665
+Hiệu lực một phần:           5,399
+Đã loại do hết hiệu lực:     81,037
+Chưa xác định:               19,723
+Thiếu metadata:              17,639
+JSON lỗi:                    0
+Nội dung rỗng:               3,348
+------------------------------------------------------------
+Đã ghi file còn hiệu lực:    63,557
+Đã ghi file một phần:        5,372
+Đã ghi file cần kiểm tra:    17,510
+============================================================
+Dữ liệu dùng cho RAG:
+  C:\TTTN\data_local\vietnamese_legal_active_clean.jsonl
+Dữ liệu hiệu lực một phần:
+  C:\TTTN\data_local\vietnamese_legal_partial_review.jsonl
+Dữ liệu cần kiểm tra:
+  C:\TTTN\data_local\vietnamese_legal_unknown_review.jsonl
+Nhật ký lọc:
+  C:\TTTN\data_local\legal_filter_audit.csv
+File tổng kết:
+  C:\TTTN\data_local\legal_filter_summary.json
+
+  Query
+  ↓
+lọc văn bản còn hiệu lực
+  ↓
+Vector Search Top 30–50
+  ↓
+lọc ngày có hiệu lực
+  ↓
+Rerank:
+    Semantic relevance
+    +
+    Recency
+  ↓
+Top 5
