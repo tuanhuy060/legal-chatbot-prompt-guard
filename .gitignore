@@ -1,6 +1,33 @@
+# Python
 __pycache__/
-*.pyc
-.env
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Virtual Environment
+.venv/
 venv/
-node_modules/
+ENV/
+env/
+
+# Databases & Large Artifacts
+chroma_legal_db/
+data/raw/*
+!data/raw/.gitkeep
+data/processed/*
+!data/processed/.gitkeep
+
+# IDEs & Editors
 .vscode/
+.idea/
+*.swp
+*.swo
+
+# Environment Variables
+.env
+.env.local
+
+# OS specific
+.DS_Store
+Thumbs.db
