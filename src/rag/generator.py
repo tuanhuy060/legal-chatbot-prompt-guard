@@ -43,7 +43,7 @@ class LegalGenerator:
     """Động cơ Tạo câu trả lời pháp lý bằng Não LLM Qwen 2.5 với Legal CoT Reasoning."""
 
     MODEL_NAME = "Qwen/Qwen2.5-1.5B-Instruct"
-    MIN_RERANKER_CONFIDENCE = 0.510
+    MIN_RERANKER_CONFIDENCE = 0.505
 
     SYSTEM_PROMPT = (
         "Bạn là Luật sư Chuyên gia Tư vấn Pháp luật Việt Nam chuẩn mực, trung thực và sắc sảo.\n"
