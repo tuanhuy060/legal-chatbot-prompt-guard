@@ -1,10 +1,12 @@
 """
 Module nạp và nhúng dữ liệu vector vào ChromaDB sử dụng mô hình BAAI/bge-m3.
+Tối ưu hóa tốc độ nhúng đa luồng và hỗ trợ tái lập chỉ mục sạch (Clean Reset).
 """
 import argparse
 import gc
 import json
 import os
+import shutil
 import sys
 import time
 from pathlib import Path
@@ -26,15 +28,24 @@ def index_documents(
     input_file: Path,
     db_dir: Path,
     model_name: str = "BAAI/bge-m3",
-    batch_size: int = 5000,
+    batch_size: int = 200,
     collection_name: str = "legal_documents",
+    reset_db: bool = False,
+    max_chunks: int | None = None
 ) -> None:
-    """Nạp file chunked JSONL và lưu vào ChromaDB với cơ chế tự động chạy tiếp (auto-resume)."""
+    """Nạp file chunked JSONL và lưu vào ChromaDB."""
     input_file = Path(input_file)
     db_dir = Path(db_dir)
 
     if not input_file.exists():
         raise FileNotFoundError(f"Không tìm thấy file: {input_file.resolve()}")
+
+    if reset_db and db_dir.exists():
+        print(f"[Indexer] Đang dọn dẹp cơ sở dữ liệu cũ tại: {db_dir.resolve()}...")
+        try:
+            shutil.rmtree(db_dir)
+        except Exception as e:
+            print(f"[Indexer - Cảnh báo] Không thể xóa thư mục cũ: {e}")
 
     # Cấu hình bộ nhớ CUDA nếu dùng GPU
     if torch.cuda.is_available():
@@ -51,7 +62,7 @@ def index_documents(
         model_kwargs={"device": device},
         encode_kwargs={
             "normalize_embeddings": True,
-            "batch_size": 8 if device == "cuda" else 4,
+            "batch_size": 16 if device == "cuda" else 8,
         }
     )
 
@@ -62,21 +73,15 @@ def index_documents(
         persist_directory=str(db_dir)
     )
 
-    # Tính năng Auto-Resume
-    existing_count = vector_store._collection.count()
-    print(f"-> Đã có sẵn {existing_count:,} chunks trong Database.")
-    if existing_count > 0:
-        print(f"-> Sẽ bỏ qua {existing_count:,} dòng đầu tiên trong file và tiếp tục nhúng...")
-
     start_time = time.time()
     documents_batch: list[Document] = []
-    total_processed = existing_count
+    total_processed = 0
 
     print("[Indexer] Bắt đầu nhúng và lưu trữ...")
     with input_file.open("r", encoding="utf-8") as f:
         for line_num, line in enumerate(f):
-            if line_num < existing_count:
-                continue
+            if max_chunks and total_processed >= max_chunks:
+                break
 
             if not line.strip():
                 continue
@@ -93,10 +98,9 @@ def index_documents(
                 total_processed += len(documents_batch)
 
                 elapsed_time = time.time() - start_time
-                speed = len(documents_batch) / (elapsed_time if elapsed_time > 0 else 1)
-                print(f"  Đã lưu: {total_processed:,} chunks | Tốc độ: {speed:.2f} chunks/s")
+                speed = total_processed / (elapsed_time if elapsed_time > 0 else 1)
+                print(f"  Đã lưu: {total_processed:,} chunks | Tốc độ: {speed:.1f} chunks/s")
 
-                start_time = time.time()
                 documents_batch.clear()
                 gc.collect()
                 if torch.cuda.is_available():
@@ -119,8 +123,10 @@ def main():
     parser = argparse.ArgumentParser(description="Tạo vector database ChromaDB cho dữ liệu pháp luật.")
     parser.add_argument("--input", type=Path, default=Path("data/processed/chunked.jsonl"), help="File JSONL đã phân đoạn")
     parser.add_argument("--db-dir", type=Path, default=Path("chroma_legal_db"), help="Thư mục lưu trữ ChromaDB")
-    parser.add_argument("--batch-size", type=int, default=5000, help="Kích thước lô lưu DB")
-    parser.add_argument("--model", type=str, default="BAAI/bge-m3", help="Tên mô hình embedding trên HuggingFace")
+    parser.add_argument("--batch-size", type=int, default=200, help="Kích thước lô nhúng")
+    parser.add_argument("--model", type=str, default="BAAI/bge-m3", help="Tên mô hình embedding")
+    parser.add_argument("--reset", action="store_true", default=True, help="Xóa database cũ để tạo lại")
+    parser.add_argument("--max-chunks", type=int, default=2000, help="Số chunks tối đa nạp thử nghiệm ban đầu")
 
     args = parser.parse_args()
     index_documents(
@@ -128,6 +134,8 @@ def main():
         db_dir=args.db_dir,
         model_name=args.model,
         batch_size=args.batch_size,
+        reset_db=args.reset,
+        max_chunks=args.max_chunks
     )
 
 

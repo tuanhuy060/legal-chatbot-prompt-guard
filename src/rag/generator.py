@@ -1,0 +1,143 @@
+"""
+Module Tích hợp LLM Não Qwen 2.5 (Qwen/Qwen2.5-1.5B-Instruct) với Legal Chain-of-Thought Prompt.
+Tự động suy luận pháp lý 3 bước: Căn cứ -> Phân tích -> Kết luận dứt khoát.
+"""
+import os
+import re
+from pathlib import Path
+from typing import Any
+
+# Tự động trỏ cache HuggingFace sang ổ D (nếu có) để tránh đầy ổ C
+if "HF_HOME" not in os.environ and Path("D:/").exists():
+    os.environ["HF_HOME"] = "D:/hf_cache"
+
+import torch
+from transformers import AutoModelForCausalLM, AutoTokenizer
+
+
+class OutputSanitizer:
+    """Tầng kiểm soát bảo mật đầu ra: Quét và che mờ PII (CCCD, SĐT, STK, Email...)."""
+
+    PII_PATTERNS = [
+        (re.compile(r"\b\d{9}\b|\b\d{12}\b"), "[REDACTED_CCCD]"),
+        (re.compile(r"(\+84|0)(3|5|7|8|9)\d{8}\b"), "[REDACTED_PHONE]"),
+        (re.compile(r"\b\d{4}[-\s]?\d{4}[-\s]?\d{4}(?:[-\s]?\d{4})?\b"), "[REDACTED_BANK_ACCOUNT]"),
+        (re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b"), "[REDACTED_EMAIL]"),
+    ]
+
+    @classmethod
+    def sanitize(cls, text: str) -> tuple[str, list[str]]:
+        detected = []
+        sanitized_text = text
+
+        for pattern, mask in cls.PII_PATTERNS:
+            matches = pattern.findall(sanitized_text)
+            if matches:
+                detected.append(mask)
+                sanitized_text = pattern.sub(mask, sanitized_text)
+
+        return sanitized_text, detected
+
+
+class LegalGenerator:
+    """Động cơ Tạo câu trả lời pháp lý bằng Não LLM Qwen 2.5 với Legal CoT Reasoning."""
+
+    MODEL_NAME = "Qwen/Qwen2.5-1.5B-Instruct"
+    MIN_RERANKER_CONFIDENCE = 0.510
+
+    SYSTEM_PROMPT = (
+        "Bạn là Luật sư Chuyên gia Tư vấn Pháp luật Việt Nam chuẩn mực, trung thực và sắc sảo.\n"
+        "QUY TẮC BẮT BUỘC KHI TRẢ LỜI:\n"
+        "1. Đọc kỹ phần [BỐI CẢNH VĂN BẢN PHÁP LUẬT] được cung cấp dưới đây để trả lời câu hỏi.\n"
+        "2. Cấu trúc câu trả lời BẮT BUỘC gồm 3 phần rõ ràng:\n"
+        "   - 📌 CĂN CỨ PHÁP LÝ: Nêu rõ Tên văn bản luật, Số ký hiệu, Điều, Khoản, Điểm điều chỉnh trực tiếp vấn đề.\n"
+        "   - ⚖️ PHÂN TÍCH & ĐỐI CHIẾU: Trích dẫn nội dung quy phạm và phân tích áp dụng vào trường hợp của người dùng (ví dụ: người 17 tuổi là người chưa thành niên...).\n"
+        "   - 🎯 KẾT LUẬN: Khẳng định dứt khoát (ĐƯỢC PHÉP / KHÔNG ĐƯỢC PHÉP / VI PHẠM PHÁP LUẬT / ĐỦ ĐIỀU KIỆN...).\n"
+        "3. Tuyệt đối không tự bịa đặt điều luật không có trong bối cảnh.\n"
+        "4. Nếu trong bối cảnh không có quy định giải đáp câu hỏi, hãy từ chối: Kho dữ liệu hiện chưa có văn bản thuộc lĩnh vực này.\n"
+        "5. Luôn kết thúc bằng: '⚠️ LƯU Ý: Thông tin trên chỉ mang tính chất tham khảo.'"
+    )
+
+    def __init__(self, model_name: str = MODEL_NAME):
+        self.model_name = model_name
+        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.tokenizer = None
+        self.model = None
+        self._is_loaded = False
+
+    def load_model(self):
+        """Khởi tạo và nạp mô hình Qwen 2.5 vào RAM / VRAM."""
+        if self._is_loaded and self.model is not None:
+            return
+
+        print(f"[Generator] Đang nạp mô hình LLM '{self.model_name}' trên {self.device.upper()} (lưu tại {os.environ.get('HF_HOME', 'default')})...")
+        self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
+        self.model = AutoModelForCausalLM.from_pretrained(
+            self.model_name,
+            torch_dtype=torch.float16 if self.device == "cuda" else torch.float32,
+            low_cpu_mem_usage=True
+        ).to(self.device)
+        self.model.eval()
+        self._is_loaded = True
+        print("[Generator] Não LLM Qwen 2.5 đã sẵn sàng.")
+
+    def generate_response(self, query: str, retrieved_docs: list[dict[str, Any]]) -> str:
+        """Sinh câu trả lời với sự kiểm tra nghiêm ngặt tính liên quan của bối cảnh."""
+        # 1. Kiểm tra Out-of-Domain (Không có văn bản liên quan)
+        if not retrieved_docs or retrieved_docs[0].get("reranker_score", 0.0) < self.MIN_RERANKER_CONFIDENCE:
+            return (
+                "Kính gửi Quý người dùng,\n\n"
+                "Hệ thống đã tra cứu trong kho dữ liệu nhưng KHÔNG TÌM THẤY văn bản quy phạm pháp luật phù hợp để giải đáp câu hỏi của bạn.\n"
+                "(Kho dữ liệu hiện tại chưa có văn bản thuộc lĩnh vực bạn đang hỏi).\n\n"
+                "⚠️ KHUYẾN NGHỊ:\n"
+                "Hệ thống từ chối đưa ra kết luận để tránh cung cấp thông tin sai lệch (Hallucination). "
+                "Vui lòng bổ sung thêm văn bản luật tương ứng vào cơ sở dữ liệu."
+            )
+
+        # 2. Đảm bảo model đã được nạp
+        if not self._is_loaded:
+            self.load_model()
+
+        # 3. Đóng gói context từ RAG
+        context_parts = []
+        for i, item in enumerate(retrieved_docs[:3], 1):
+            doc = item["document"]
+            meta = doc.metadata or {}
+            title = meta.get("title", "Văn bản")
+            symbol = meta.get("so_ky_hieu", "")
+            context_parts.append(f"--- [VĂN BẢN {i}: {title} (Số: {symbol})] ---\n{doc.page_content.strip()}")
+        context_str = "\n\n".join(context_parts)
+
+        messages = [
+            {"role": "system", "content": self.SYSTEM_PROMPT},
+            {
+                "role": "user",
+                "content": (
+                    f"[BỐI CẢNH VĂN BẢN PHÁP LUẬT]:\n{context_str}\n\n"
+                    f"[CÂU HỎI]:\n{query}\n\n"
+                    f"Hãy trả lời theo đúng cấu trúc 3 phần (Căn cứ pháp lý -> Phân tích & đối chiếu -> Kết luận):"
+                )
+            }
+        ]
+
+        # 4. Sinh văn bản qua Qwen 2.5
+        text_prompt = self.tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+        model_inputs = self.tokenizer([text_prompt], return_tensors="pt").to(self.device)
+
+        with torch.no_grad():
+            generated_ids = self.model.generate(
+                **model_inputs,
+                max_new_tokens=450,
+                temperature=0.1,
+                top_p=0.9,
+                do_sample=False,
+                repetition_penalty=1.1
+            )
+
+        generated_ids = [
+            output_ids[len(input_ids):] for input_ids, output_ids in zip(model_inputs.input_ids, generated_ids)
+        ]
+        response_text = self.tokenizer.batch_decode(generated_ids, skip_special_tokens=True)[0].strip()
+
+        sanitized_response, _ = OutputSanitizer.sanitize(response_text)
+        return sanitized_response
