@@ -2,12 +2,15 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-COPY requirements_docker.txt .
+# Cài đặt dependencies
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
 
-RUN pip install --no-cache-dir -r requirements_docker.txt
-
+# Copy source code
 COPY . .
 
-ENV CUDA_VISIBLE_DEVICES=""
+# Thiết lập biến môi trường
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONPATH=/app
 
-CMD ["python", "src/test_retrieval2.py"]
+CMD ["python", "tests/test_pipeline.py"]
