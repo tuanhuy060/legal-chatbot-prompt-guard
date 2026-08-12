@@ -53,7 +53,7 @@ class OutputSanitizer:
 class LegalGenerator:
     """Động cơ Tạo câu trả lời pháp lý bằng Não LLM Qwen 2.5 với Legal CoT Reasoning."""
 
-    MODEL_NAME = "Qwen/Qwen2.5-0.5B-Instruct"
+    MODEL_NAME = "Qwen/Qwen2.5-1.5B-Instruct"
     MIN_RERANKER_CONFIDENCE = 0.500
 
     SYSTEM_PROMPT = (
