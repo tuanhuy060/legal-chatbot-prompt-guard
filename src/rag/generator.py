@@ -180,9 +180,9 @@ class LegalGenerator:
         if not self._is_loaded:
             self.load_model()
 
-        # 3. Đóng gói context
+        # 3. Đóng gói context gọn gàng (Top 2 văn bản)
         context_parts = []
-        for i, item in enumerate(retrieved_docs[:3], 1):
+        for i, item in enumerate(retrieved_docs[:2], 1):
             doc = item["document"]
             meta = doc.metadata or {}
             title = meta.get("title", "Văn bản")
@@ -194,7 +194,7 @@ class LegalGenerator:
 
         # Hỗ trợ multi-turn chat history nếu có
         if chat_history:
-            for turn in chat_history[-4:]:  # Lấy tối đa 2 cặp hỏi-đáp gần nhất
+            for turn in chat_history[-2:]:  # Lấy 1 cặp hỏi-đáp gần nhất
                 messages.append({"role": turn.get("role", "user"), "content": turn.get("content", "")})
 
         messages.append({
@@ -212,7 +212,7 @@ class LegalGenerator:
         streamer = TextIteratorStreamer(self.tokenizer, skip_prompt=True, skip_special_tokens=True)
         generation_kwargs = dict(
             **model_inputs,
-            max_new_tokens=600,
+            max_new_tokens=350,
             do_sample=False,
             repetition_penalty=1.1,
             streamer=streamer

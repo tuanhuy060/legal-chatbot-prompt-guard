@@ -209,11 +209,11 @@ async def stream_chat(req: ChatMessageRequest):
             return
 
         # ----------------------------------------------------
-        # BƯỚC 2 + 3 + 4: RAG (RETRIEVER + RERANKER + LEGAL SCORE)
+        # BƯỚC 2 + 3 + 4: RAG TỐI ƯU SIÊU TỐC (RETRIEVER + RERANKER + LEGAL SCORE)
         # ----------------------------------------------------
-        candidates = retriever.retrieve(query, k=30)
-        reranked = reranker.rerank(query, candidates, top_k=20)
-        final_results = legal_rerank(reranked, top_k=3)
+        candidates = retriever.retrieve(query, k=12)
+        reranked = reranker.rerank(query, candidates, top_k=8)
+        final_results = legal_rerank(reranked, top_k=2)
 
         citations = []
         for item in final_results:
