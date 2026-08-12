@@ -7,8 +7,8 @@
 // STATE MANAGEMENT
 // ==========================================
 const state = {
-    userId: localStorage.getItem("legal_user_id") || "user_demo",
-    currentSessionId: null,
+    userId: "user_1",
+    currentSessionId: localStorage.getItem("legal_current_session_id") || null,
     sessions: [],
     isGenerating: false
 };
@@ -21,7 +21,6 @@ const elements = {
     sidebarToggle: document.getElementById("sidebarToggle"),
     newChatBtn: document.getElementById("newChatBtn"),
     sessionList: document.getElementById("sessionList"),
-    userSelect: document.getElementById("userSelect"),
     chatSessionTitle: document.getElementById("chatSessionTitle"),
     chatContainer: document.getElementById("chatContainer"),
     welcomeScreen: document.getElementById("welcomeScreen"),
@@ -44,25 +43,11 @@ document.addEventListener("DOMContentLoaded", () => {
 });
 
 async function initApp() {
-    // Đồng bộ dropdown với state
-    if (elements.userSelect) {
-        elements.userSelect.value = state.userId;
-    }
     setupEventListeners();
     await loadSessions();
 }
 
 function setupEventListeners() {
-    // User Switcher
-    if (elements.userSelect) {
-        elements.userSelect.addEventListener("change", async (e) => {
-            state.userId = e.target.value;
-            localStorage.setItem("legal_user_id", state.userId);
-            state.currentSessionId = null;
-            await loadSessions();
-        });
-    }
-
     // Input & Send button
     elements.chatInput.addEventListener("input", handleInputChange);
     elements.chatInput.addEventListener("keydown", handleInputKeydown);
@@ -128,15 +113,24 @@ function handleInputKeydown(e) {
 async function loadSessions() {
     try {
         const res = await fetch(`/api/sessions?user_id=${state.userId}`);
+        if (!res.ok) {
+            throw new Error(`Server returned ${res.status}`);
+        }
         const data = await res.json();
         state.sessions = data.sessions || [];
         renderSessionList();
 
         if (state.sessions.length > 0) {
-            // Load the most recent session
-            await selectSession(state.sessions[0].session_id);
+            // Kiểm tra xem session trước đó có còn tồn tại không
+            const savedSessionId = state.currentSessionId;
+            const exists = state.sessions.find(s => s.session_id === savedSessionId);
+            if (savedSessionId && exists) {
+                await selectSession(savedSessionId);
+            } else {
+                await selectSession(state.sessions[0].session_id);
+            }
         } else {
-            // Start a new session
+            // Khởi tạo session ban đầu
             await startNewChat();
         }
     } catch (err) {
@@ -174,12 +168,16 @@ function renderSessionList() {
 }
 
 async function selectSession(sessionId) {
-    if (state.isGenerating) return;
+    if (state.isGenerating || !sessionId) return;
     state.currentSessionId = sessionId;
+    localStorage.setItem("legal_current_session_id", sessionId);
     renderSessionList();
 
     try {
         const res = await fetch(`/api/sessions/${sessionId}?user_id=${state.userId}`);
+        if (!res.ok) {
+            throw new Error(`HTTP ${res.status}`);
+        }
         const data = await res.json();
         const session = data.session;
 
@@ -200,16 +198,22 @@ async function startNewChat() {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ user_id: state.userId, title: "Cuộc trò chuyện mới" })
         });
+        if (!res.ok) {
+            throw new Error(`HTTP ${res.status}`);
+        }
         const data = await res.json();
         const newSession = data.session;
 
-        state.sessions.unshift(newSession);
-        state.currentSessionId = newSession.session_id;
-        renderSessionList();
+        if (newSession) {
+            state.sessions.unshift(newSession);
+            state.currentSessionId = newSession.session_id;
+            localStorage.setItem("legal_current_session_id", newSession.session_id);
+            renderSessionList();
 
-        elements.chatSessionTitle.textContent = newSession.title;
-        renderMessages([]);
-        elements.chatInput.focus();
+            elements.chatSessionTitle.textContent = newSession.title;
+            renderMessages([]);
+            elements.chatInput.focus();
+        }
     } catch (err) {
         console.error("Lỗi tạo session mới:", err);
     }
@@ -385,7 +389,7 @@ async function handleSendMessage() {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
-                session_id: state.currentSessionId,
+                session_id: state.currentSessionId || null,
                 user_id: state.userId,
                 query: query
             })
@@ -473,8 +477,8 @@ async function handleSendMessage() {
 
                     // 5. Done
                     else if (eventData.type === "done") {
-                        // Cập nhật lại session title nếu cần
-                        loadSessions();
+                        // Cập nhật lại session title trong danh sách
+                        await loadSessions();
                     }
                 }
             }

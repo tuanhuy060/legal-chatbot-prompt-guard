@@ -58,13 +58,13 @@ print("[Server] Hệ thống đã sẵn sàng phục vụ!")
 # ==========================================
 
 class CreateSessionRequest(BaseModel):
-    user_id: str = "user_demo"
+    user_id: Optional[str] = "user_1"
     title: Optional[str] = "Cuộc trò chuyện mới"
 
 
 class ChatMessageRequest(BaseModel):
-    session_id: str
-    user_id: str = "user_demo"
+    session_id: Optional[str] = None
+    user_id: Optional[str] = "user_1"
     query: str
 
 
@@ -91,32 +91,39 @@ async def serve_index():
 # ==========================================
 
 @app.get("/api/sessions")
-async def get_sessions(user_id: str = Query("user_demo")):
+async def get_sessions(user_id: Optional[str] = "user_1"):
     """Lấy danh sách tất cả các phiên làm việc của người dùng."""
-    sessions = session_store.list_user_sessions(user_id=user_id)
+    uid = user_id or "user_1"
+    sessions = session_store.list_user_sessions(user_id=uid)
     return {"sessions": sessions}
 
 
 @app.post("/api/sessions")
 async def create_session(req: CreateSessionRequest):
     """Tạo một phiên làm việc mới."""
-    session = session_store.create_session(user_id=req.user_id, title=req.title or "Cuộc trò chuyện mới")
+    uid = req.user_id or "user_1"
+    session = session_store.create_session(user_id=uid, title=req.title or "Cuộc trò chuyện mới")
     return {"session": session}
 
 
 @app.get("/api/sessions/{session_id}")
-async def get_session_detail(session_id: str, user_id: str = Query("user_demo")):
+async def get_session_detail(session_id: str, user_id: Optional[str] = "user_1"):
     """Lấy chi tiết và lịch sử tin nhắn của một phiên."""
-    session = session_store.get_session(session_id, user_id=user_id)
+    uid = user_id or "user_1"
+    session = session_store.get_session(session_id, user_id=uid)
+    if not session:
+        # Nếu chưa tìm thấy thì tìm theo session_id không cần user_id
+        session = session_store.get_session(session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Không tìm thấy phiên làm việc.")
     return {"session": session}
 
 
 @app.delete("/api/sessions/{session_id}")
-async def delete_session(session_id: str, user_id: str = Query("user_demo")):
+async def delete_session(session_id: str, user_id: Optional[str] = "user_1"):
     """Xóa một phiên làm việc."""
-    success = session_store.delete_session(session_id, user_id=user_id)
+    uid = user_id or "user_1"
+    success = session_store.delete_session(session_id, user_id=uid)
     return {"success": success}
 
 
@@ -136,7 +143,7 @@ async def get_system_stats():
 
 
 @app.get("/api/security-logs")
-async def get_security_logs(limit: int = Query(20)):
+async def get_security_logs(limit: int = 20):
     """Lấy danh sách các cuộc tấn công bị Prompt Guard chặn."""
     logs = session_store.get_security_logs(limit=limit)
     return {"logs": logs}
@@ -158,13 +165,13 @@ async def stream_chat(req: ChatMessageRequest):
     """
     query = req.query.strip()
     session_id = req.session_id
-    user_id = req.user_id
+    user_id = req.user_id or "user_1"
 
     if not query:
         raise HTTPException(status_code=400, detail="Câu hỏi không được để trống.")
 
     # Kiểm tra phiên làm việc hợp lệ
-    session = session_store.get_session(session_id, user_id=user_id)
+    session = session_store.get_session(session_id, user_id=user_id) if session_id else None
     if not session:
         # Tự động tạo phiên nếu chưa có
         session = session_store.create_session(user_id=user_id, title=query[:30])

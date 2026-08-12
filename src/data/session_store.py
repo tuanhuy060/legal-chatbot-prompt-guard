@@ -3,12 +3,19 @@ Module Quản lý NoSQL Database cho Chat Sessions và Security Logs bằng Tiny
 Hỗ trợ lưu trữ lịch sử hội thoại nhiều lượt (Multi-turn) và Log an ninh Prompt Guard.
 """
 import os
+import sys
 import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
 
+# Đảm bảo UTF-8 an toàn trên Windows
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
+
 from tinydb import Query, TinyDB
+from tinydb.middlewares import CachingMiddleware
+from tinydb.storages import JSONStorage
 
 
 class SessionStore:
@@ -25,23 +32,23 @@ class SessionStore:
             db_path = str(db_dir / "sessions.json")
 
         self.db_path = db_path
-        self.db = TinyDB(self.db_path, ensure_ascii=False, indent=2)
+        # Chỉ định rõ encoding='utf-8' để tránh lỗi charmap trên Windows
+        self.db = TinyDB(self.db_path, storage=JSONStorage, encoding="utf-8", ensure_ascii=False, indent=2)
         self.sessions_table = self.db.table("chat_sessions")
         self.security_table = self.db.table("security_logs")
-        print(f"[SessionStore] Khởi tạo NoSQL Session Database tại: {self.db_path}")
 
     # ==========================================
     # SESSION & CHAT MANAGEMENT
     # ==========================================
 
-    def create_session(self, user_id: str = "default_user", title: str = "Cuộc trò chuyện mới") -> dict[str, Any]:
+    def create_session(self, user_id: str = "user_1", title: str = "Cuộc trò chuyện mới") -> dict[str, Any]:
         """Tạo một phiên làm việc mới."""
         session_id = str(uuid.uuid4())[:8]
         now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         session_doc = {
             "session_id": session_id,
-            "user_id": user_id,
-            "title": title,
+            "user_id": user_id or "user_1",
+            "title": title or "Cuộc trò chuyện mới",
             "created_at": now_str,
             "updated_at": now_str,
             "messages": []
@@ -58,10 +65,11 @@ class SessionStore:
             res = self.sessions_table.get(Q.session_id == session_id)
         return res
 
-    def list_user_sessions(self, user_id: str = "default_user") -> list[dict[str, Any]]:
+    def list_user_sessions(self, user_id: str = "user_1") -> list[dict[str, Any]]:
         """Liệt kê tất cả các phiên làm việc của một người dùng cụ thể."""
         Q = Query()
-        sessions = self.sessions_table.search(Q.user_id == user_id)
+        uid = user_id or "user_1"
+        sessions = self.sessions_table.search(Q.user_id == uid)
         # Sắp xếp phiên mới nhất lên đầu
         sessions.sort(key=lambda s: s.get("updated_at", ""), reverse=True)
         return sessions
@@ -131,7 +139,7 @@ class SessionStore:
         now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         log_entry = {
             "id": str(uuid.uuid4())[:8],
-            "user_id": user_id,
+            "user_id": user_id or "user_1",
             "prompt": prompt,
             "risk_level": risk_level,
             "risk_score": risk_score,
