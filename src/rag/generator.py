@@ -12,7 +12,12 @@ if "HF_HOME" not in os.environ and Path("D:/").exists():
     os.environ["HF_HOME"] = "D:/hf_cache"
 
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer
+# Tối ưu hóa số luồng CPU cho tốc độ suy luận nhanh nhất
+if not torch.cuda.is_available():
+    cpu_cores = os.cpu_count() or 4
+    torch.set_num_threads(min(cpu_cores, 8))
+
+from transformers import AutoModelForCausalLM, AutoTokenizer, TextStreamer
 
 
 class OutputSanitizer:
@@ -43,7 +48,7 @@ class LegalGenerator:
     """Động cơ Tạo câu trả lời pháp lý bằng Não LLM Qwen 2.5 với Legal CoT Reasoning."""
 
     MODEL_NAME = "Qwen/Qwen2.5-1.5B-Instruct"
-    MIN_RERANKER_CONFIDENCE = 0.505
+    MIN_RERANKER_CONFIDENCE = 0.500
 
     SYSTEM_PROMPT = (
         "Bạn là Luật sư Chuyên gia Tư vấn Pháp luật Việt Nam chuẩn mực, trung thực và sắc sảo.\n"
@@ -51,7 +56,7 @@ class LegalGenerator:
         "1. Đọc kỹ phần [BỐI CẢNH VĂN BẢN PHÁP LUẬT] được cung cấp dưới đây để trả lời câu hỏi.\n"
         "2. Cấu trúc câu trả lời BẮT BUỘC gồm 3 phần rõ ràng:\n"
         "   - 📌 CĂN CỨ PHÁP LÝ: Nêu rõ Tên văn bản luật, Số ký hiệu, Điều, Khoản, Điểm điều chỉnh trực tiếp vấn đề.\n"
-        "   - ⚖️ PHÂN TÍCH & ĐỐI CHIẾU: Trích dẫn nội dung quy phạm và phân tích áp dụng vào trường hợp của người dùng (ví dụ: người 17 tuổi là người chưa thành niên...).\n"
+        "   - ⚖️ PHÂN TÍCH & ĐỐI CHIẾU: Trích dẫn nội dung quy phạm và phân tích áp dụng vào trường hợp của người dùng.\n"
         "   - 🎯 KẾT LUẬN: Khẳng định dứt khoát (ĐƯỢC PHÉP / KHÔNG ĐƯỢC PHÉP / VI PHẠM PHÁP LUẬT / ĐỦ ĐIỀU KIỆN...).\n"
         "3. Tuyệt đối không tự bịa đặt điều luật không có trong bối cảnh.\n"
         "4. Nếu trong bối cảnh không có quy định giải đáp câu hỏi, hãy từ chối: Kho dữ liệu hiện chưa có văn bản thuộc lĩnh vực này.\n"
@@ -81,11 +86,16 @@ class LegalGenerator:
         self._is_loaded = True
         print("[Generator] Não LLM Qwen 2.5 đã sẵn sàng.")
 
-    def generate_response(self, query: str, retrieved_docs: list[dict[str, Any]]) -> str:
+    def generate_response(
+        self,
+        query: str,
+        retrieved_docs: list[dict[str, Any]],
+        stream: bool = False
+    ) -> str:
         """Sinh câu trả lời với sự kiểm tra nghiêm ngặt tính liên quan của bối cảnh."""
         # 1. Kiểm tra Out-of-Domain (Không có văn bản liên quan)
         if not retrieved_docs or retrieved_docs[0].get("reranker_score", 0.0) < self.MIN_RERANKER_CONFIDENCE:
-            return (
+            msg = (
                 "Kính gửi Quý người dùng,\n\n"
                 "Hệ thống đã tra cứu trong kho dữ liệu nhưng KHÔNG TÌM THẤY văn bản quy phạm pháp luật phù hợp để giải đáp câu hỏi của bạn.\n"
                 "(Kho dữ liệu hiện tại chưa có văn bản thuộc lĩnh vực bạn đang hỏi).\n\n"
@@ -93,6 +103,9 @@ class LegalGenerator:
                 "Hệ thống từ chối đưa ra kết luận để tránh cung cấp thông tin sai lệch (Hallucination). "
                 "Vui lòng bổ sung thêm văn bản luật tương ứng vào cơ sở dữ liệu."
             )
+            if stream:
+                print(msg)
+            return msg
 
         # 2. Đảm bảo model đã được nạp
         if not self._is_loaded:
@@ -124,14 +137,15 @@ class LegalGenerator:
         text_prompt = self.tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
         model_inputs = self.tokenizer([text_prompt], return_tensors="pt").to(self.device)
 
+        streamer = TextStreamer(self.tokenizer, skip_prompt=True, skip_special_tokens=True) if stream else None
+
         with torch.no_grad():
             generated_ids = self.model.generate(
                 **model_inputs,
-                max_new_tokens=450,
-                temperature=0.1,
-                top_p=0.9,
+                max_new_tokens=600,
                 do_sample=False,
-                repetition_penalty=1.1
+                repetition_penalty=1.1,
+                streamer=streamer
             )
 
         generated_ids = [

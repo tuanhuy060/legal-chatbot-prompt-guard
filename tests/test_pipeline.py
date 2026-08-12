@@ -65,21 +65,21 @@ def run_pipeline(
 
     # 5. NÃO LLM QWEN 2.5 TỔNG HỢP VÀ SUY LUẬN TRẢ LỜI
     print(f"\n[Bước 5/5] Não LLM Qwen 2.5 đang suy luận pháp lý 3 bước (CoT)...")
-    answer = generator.generate_response(query, final_results)
-
     print("\n" + "╔" + "═" * 86 + "╗")
     print("║ 💬 CÂU TRẢ LỜI TƯ VẤN CỦA CHATBOT PHÁP LUẬT                                          ║")
     print("╚" + "═" * 86 + "╝\n")
-    print(answer)
+
+    # Bật stream=True để in ra từng chữ (streaming real-time) ngay khi sinh
+    generator.generate_response(query, final_results, stream=True)
     print("\n" + "═" * 88)
 
 
 def main():
     parser = argparse.ArgumentParser(description="Kiểm thử Pipeline RAG Pháp Luật toàn diện.")
     parser.add_argument("--query", type=str, default=None, help="Câu hỏi pháp lý cần tra cứu")
-    parser.add_argument("--candidates-k", type=int, default=20, help="Số lượng ứng viên retrieve ban đầu")
+    parser.add_argument("--candidates-k", type=int, default=50, help="Số lượng ứng viên retrieve ban đầu")
     parser.add_argument("--top-k", type=int, default=3, help="Số kết quả chuyển vào LLM")
-    parser.add_argument("--db-dir", type=str, default="chroma_legal_db", help="Đường dẫn thư mục ChromaDB")
+    parser.add_argument("--db-dir", type=str, default="D:/chroma_legal_db", help="Đường dẫn thư mục ChromaDB")
     args = parser.parse_args()
 
     print("\n[Hệ thống] Đang khởi tạo các mô hình: Prompt Guard + BGE-M3 + BGE-Reranker + Qwen 2.5...")

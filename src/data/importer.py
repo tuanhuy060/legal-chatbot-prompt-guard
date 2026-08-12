@@ -1,6 +1,6 @@
 """
 Module Trích xuất & Làm sạch Dữ liệu Pháp luật từ Kho Parquet (171k văn bản) sang JSONL.
-Lọc các Văn bản Luật, Bộ luật, Nghị định CÒN HIỆU LỰC để nạp vào hệ thống RAG.
+Ưu tiên hàng đầu các Bộ luật, Luật và Nghị định Trọng điểm Quốc gia CÒN HIỆU LỰC.
 """
 import html
 import json
@@ -16,8 +16,31 @@ if hasattr(sys.stdout, "reconfigure"):
 import pandas as pd
 from bs4 import BeautifulSoup
 
-PARQUET_DIR = Path(r"c:\Users\tuanh\Downloads\dataset chatbot guard\vietnamese_legal_docs\data")
+PARQUET_DIR = Path("data/raw")
 OUTPUT_CLEAN = Path("data/processed/vietnamese_legal_active_clean.jsonl")
+
+# Danh sách từ khóa các Văn bản Luật Trọng điểm Quốc gia bắt buộc phải có
+PRIORITY_KEYWORDS = [
+    "Doanh nghiệp",
+    "Dân sự",
+    "Lao động",
+    "Đầu tư",
+    "Thương mại",
+    "Hình sự",
+    "Đất đai",
+    "Giao thông đường bộ",
+    "Trật tự, an toàn giao thông đường bộ",
+    "Nhà ở",
+    "Kinh doanh bất động sản",
+    "Thuế thu nhập cá nhân",
+    "Thuế thu nhập doanh nghiệp",
+    "Thuế giá trị gia tăng",
+    "Xử lý vi phạm hành chính",
+    "Bảo hiểm xã hội",
+    "An ninh mạng",
+    "Sở hữu trí tuệ",
+    "Quản lý thuế"
+]
 
 
 def clean_html_content(raw_html: str) -> str:
@@ -25,20 +48,14 @@ def clean_html_content(raw_html: str) -> str:
     if not raw_html or not isinstance(raw_html, str):
         return ""
 
-    # Giải mã HTML entities
     decoded = html.unescape(raw_html)
-
-    # Dùng BeautifulSoup để bóc tách text giữ cấu trúc xuống dòng
     soup = BeautifulSoup(decoded, "html.parser")
     for br in soup.find_all(["br", "p", "div", "tr", "li"]):
         br.append("\n")
 
     text = soup.get_text()
-
-    # Chuẩn hóa Unicode NFC
     text = unicodedata.normalize("NFC", text)
 
-    # Chuẩn hóa khoảng trắng & ngắt dòng
     lines = [line.strip() for line in text.split("\n")]
     cleaned_lines = []
     prev_empty = False
@@ -54,12 +71,64 @@ def clean_html_content(raw_html: str) -> str:
     return "\n".join(cleaned_lines).strip()
 
 
+def parse_date_safe(date_str: Any) -> pd.Timestamp:
+    """Chuyển đổi chuỗi ngày ban hành DD/MM/YYYY thành Timestamp chuẩn để sắp xếp."""
+    if not date_str or not isinstance(date_str, str):
+        return pd.Timestamp("1970-01-01")
+    try:
+        parts = date_str.strip().split("/")
+        if len(parts) == 3:
+            return pd.Timestamp(year=int(parts[2]), month=int(parts[1]), day=int(parts[0]))
+    except Exception:
+        pass
+    return pd.Timestamp("1970-01-01")
+
+
+# Danh sách ID và Số ký hiệu các Văn bản Luật Cốt lõi Quốc gia BẮT BUỘC PHẢI CÓ
+CORE_LAW_PINNED_IDS = {
+    "142881": "Luật Doanh nghiệp số 59/2020/QH14",
+    "95942": "Bộ luật Dân sự số 91/2015/QH13",
+    "139264": "Bộ luật Lao động số 45/2019/QH14",
+    "179095": "Luật Sửa đổi, bổ sung một số điều của Luật Doanh nghiệp số 76/2025/QH15",
+}
+
+CORE_LAW_SYMBOLS = [
+    "59/2020/QH14",
+    "91/2015/QH13",
+    "45/2019/QH14",
+    "76/2025/QH15",
+    "61/2020/QH14",
+    "31/2024/QH15",
+    "27/2023/QH15",
+    "29/2023/QH15",
+    "36/2024/QH15",
+    "100/2015/QH13",
+    "15/2012/QH13",
+    "24/2018/QH14",
+    "41/2024/QH15",
+    "67/2025/QH15",
+    "48/2024/QH15",
+]
+
+
+def is_priority_doc(title: str, symbol: str, doc_id: str) -> bool:
+    """Kiểm tra xem văn bản có thuộc nhóm luật trọng điểm hay không."""
+    if str(doc_id) in CORE_LAW_PINNED_IDS:
+        return True
+    if any(s in str(symbol) for s in CORE_LAW_SYMBOLS):
+        return True
+    if not title:
+        return False
+    title_lower = title.lower()
+    return any(kw.lower() in title_lower for kw in PRIORITY_KEYWORDS)
+
+
 def extract_active_laws(
     parquet_dir: Path = PARQUET_DIR,
     output_path: Path = OUTPUT_CLEAN,
-    limit_docs: int | None = None
+    limit_docs: int = 500
 ) -> int:
-    """Trích xuất các văn bản Luật, Bộ luật, Nghị định còn hiệu lực."""
+    """Trích xuất và làm sạch các văn bản luật cốt lõi còn hiệu lực."""
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     meta_file = parquet_dir / "metadata.parquet"
@@ -68,26 +137,48 @@ def extract_active_laws(
     print(f"[Importer] Đang đọc metadata từ: {meta_file}...")
     df_meta = pd.read_parquet(meta_file)
 
-    # Lọc văn bản còn hiệu lực
-    active_meta = df_meta[df_meta["tinh_trang_hieu_luc"] == "Còn hiệu lực"].copy()
-    print(f"[Importer] Tổng số văn bản Còn hiệu lực: {len(active_meta):,}")
+    # 1. Lọc văn bản còn hiệu lực hoặc hết hiệu lực 1 phần
+    valid_status = ["Còn hiệu lực", "Hết hiệu lực một phần"]
+    active_meta = df_meta[df_meta["tinh_trang_hieu_luc"].isin(valid_status)].copy()
 
-    # Ưu tiên các loại văn bản quy phạm pháp luật cốt lõi
+    # Ghim các ID cốt lõi
+    df_meta_pinned = df_meta[df_meta["id"].isin(list(CORE_LAW_PINNED_IDS.keys()))].copy()
+    active_meta = pd.concat([df_meta_pinned, active_meta]).drop_duplicates(subset=["id"])
+    print(f"[Importer] Tổng số văn bản Còn hiệu lực / Hết hiệu lực 1 phần: {len(active_meta):,}")
+
+    # 2. Lọc các loại văn bản quy phạm pháp luật cốt lõi
     target_types = ["Bộ luật", "Luật", "Nghị định", "Nghị quyết", "Thông tư"]
     core_meta = active_meta[active_meta["loai_van_ban"].isin(target_types)].copy()
-    
-    # Sắp xếp ưu tiên: Bộ luật > Luật > Nghị định
-    type_priority = {"Bộ luật": 1, "Luật": 2, "Nghị định": 3, "Nghị quyết": 4, "Thông tư": 5}
-    core_meta["priority"] = core_meta["loai_van_ban"].map(lambda x: type_priority.get(x, 99))
-    core_meta = core_meta.sort_values(by=["priority", "ngay_ban_hanh"], ascending=[True, False])
+
+    # 3. Phân cấp ưu tiên thông minh
+    core_meta["parsed_date"] = core_meta["ngay_ban_hanh"].apply(parse_date_safe)
+    core_meta["is_pinned"] = core_meta["id"].apply(lambda x: str(x) in CORE_LAW_PINNED_IDS)
+    core_meta["is_priority"] = core_meta.apply(
+        lambda r: is_priority_doc(r.get("title", ""), r.get("so_ky_hieu", ""), r.get("id", "")),
+        axis=1
+    )
+
+    type_ranks = {"Bộ luật": 1, "Luật": 2, "Nghị định": 3, "Nghị quyết": 4, "Thông tư": 5}
+    core_meta["type_rank"] = core_meta["loai_van_ban"].map(lambda x: type_ranks.get(x, 99))
+
+    # Sắp xếp ưu tiên:
+    # 1. Ghim các Bộ luật / Luật Trụ cột (Luật Doanh nghiệp 59/2020, Bộ luật Dân sự 91/2015...) lên số 1 tuyệt đối
+    # 2. Các luật trọng điểm quốc gia
+    # 3. Thứ bậc văn bản (Bộ luật -> Luật -> Nghị định)
+    # 4. Ngày ban hành mới nhất
+    core_meta = core_meta.sort_values(
+        by=["is_pinned", "is_priority", "type_rank", "parsed_date"],
+        ascending=[False, False, True, False]
+    )
 
     if limit_docs:
         core_meta = core_meta.head(limit_docs)
 
     target_ids = set(core_meta["id"].tolist())
-    print(f"[Importer] Đã chọn {len(target_ids):,} văn bản cốt lõi để nạp vào hệ thống.")
+    print(f"[Importer] Đã chọn {len(target_ids):,} văn bản cốt lõi (Đã ghim trọn vẹn Luật Doanh nghiệp 59/2020, Dân sự 91/2015, Lao động 45/2019).")
 
-    # Đọc content parquet
+
+    # 4. Đọc nội dung HTML và làm sạch
     print(f"[Importer] Đang đọc nội dung từ: {content_file}...")
     df_content = pd.read_parquet(content_file)
     content_dict = dict(zip(df_content["id"], df_content["content_html"]))
@@ -106,9 +197,16 @@ def extract_active_laws(
             if len(cleaned_text) < 50:
                 continue
 
-            # Metadata tinh gọn chuẩn RAG
+            title_val = str(row.get("title", "")).strip()
+            if str(doc_id) in CORE_LAW_PINNED_IDS:
+                title_val = CORE_LAW_PINNED_IDS[str(doc_id)]
+            elif not title_val.startswith(("Luật", "Bộ luật", "Nghị định", "Thông tư", "Nghị quyết")):
+                loai = str(row.get("loai_van_ban", "")).strip()
+                if loai:
+                    title_val = f"{loai} {title_val}"
+
             meta = {
-                "title": str(row.get("title", "")).strip(),
+                "title": title_val,
                 "so_ky_hieu": str(row.get("so_ky_hieu", "")).strip(),
                 "ngay_ban_hanh": str(row.get("ngay_ban_hanh", "")).strip(),
                 "loai_van_ban": str(row.get("loai_van_ban", "")).strip(),
@@ -122,7 +220,7 @@ def extract_active_laws(
                 "nguoi_ky": str(row.get("nguoi_ky", "")).strip(),
                 "pham_vi": str(row.get("pham_vi", "")).strip(),
                 "thong_tin_ap_dung": str(row.get("thong_tin_ap_dung", "")).strip(),
-                "tinh_trang_hieu_luc": "Còn hiệu lực"
+                "tinh_trang_hieu_luc": str(row.get("tinh_trang_hieu_luc", "Còn hiệu lực")).strip()
             }
 
             doc_entry = {
@@ -142,5 +240,4 @@ def extract_active_laws(
 
 
 if __name__ == "__main__":
-    # Trích xuất toàn bộ Bộ luật & Luật + các Nghị định trọng điểm
-    extract_active_laws(limit_docs=500)
+    extract_active_laws(limit_docs=600)

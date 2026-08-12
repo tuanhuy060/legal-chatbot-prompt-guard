@@ -59,12 +59,14 @@ def run_demo_review():
             retrieved_docs = []
             top_score = 0.0
         else:
-            # 2. CỔNG 2: RAG Retriever + Reranker
-            raw_docs = retriever.retrieve(tc["query"], k=4)
-            retrieved_docs = reranker.rerank(tc["query"], raw_docs, top_k=2)
+            # 2. CỔNG 2: RAG Retriever + Reranker + Legal Ranker
+            raw_docs = retriever.retrieve(tc["query"], k=50)
+            reranked_docs = reranker.rerank(tc["query"], raw_docs, top_k=20)
+            from src.rag.legal_ranker import legal_rerank
+            retrieved_docs = legal_rerank(reranked_docs, top_k=3)
 
             top_score = retrieved_docs[0].get("reranker_score", 0.0) if retrieved_docs else 0.0
-            print(f"🔍 [CỔNG 2 - BGE RERANKER]: Tìm thấy {len(retrieved_docs)} đoạn luật. Điểm liên quan: {top_score:.4f} (Ngưỡng an toàn: 0.505)")
+            print(f"🔍 [CỔNG 2 - BGE RERANKER]: Tìm thấy {len(retrieved_docs)} đoạn luật. Điểm liên quan: {top_score:.4f} (Ngưỡng an toàn: 0.500)")
 
             # 3. Não LLM Qwen 2.5 Sinh câu trả lời
             response = generator.generate_response(tc["query"], retrieved_docs)
