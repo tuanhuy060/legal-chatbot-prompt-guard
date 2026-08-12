@@ -4,9 +4,14 @@ Tự động suy luận pháp lý 3 bước: Căn cứ -> Phân tích -> Kết l
 """
 import os
 import re
+import sys
 from pathlib import Path
 from threading import Thread
 from typing import Any, Generator, Optional
+
+# Đảm bảo UTF-8 an toàn trên Windows terminal
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
 
 # Tự động trỏ cache HuggingFace sang ổ D (nếu có) để tránh đầy ổ C
 if "HF_HOME" not in os.environ and Path("D:/").exists():
@@ -48,7 +53,7 @@ class OutputSanitizer:
 class LegalGenerator:
     """Động cơ Tạo câu trả lời pháp lý bằng Não LLM Qwen 2.5 với Legal CoT Reasoning."""
 
-    MODEL_NAME = "Qwen/Qwen2.5-1.5B-Instruct"
+    MODEL_NAME = "Qwen/Qwen2.5-0.5B-Instruct"
     MIN_RERANKER_CONFIDENCE = 0.500
 
     SYSTEM_PROMPT = (
