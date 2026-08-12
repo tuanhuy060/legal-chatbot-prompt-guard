@@ -7,7 +7,7 @@
 // STATE MANAGEMENT
 // ==========================================
 const state = {
-    userId: "user_demo",
+    userId: localStorage.getItem("legal_user_id") || "user_demo",
     currentSessionId: null,
     sessions: [],
     isGenerating: false
@@ -21,6 +21,7 @@ const elements = {
     sidebarToggle: document.getElementById("sidebarToggle"),
     newChatBtn: document.getElementById("newChatBtn"),
     sessionList: document.getElementById("sessionList"),
+    userSelect: document.getElementById("userSelect"),
     chatSessionTitle: document.getElementById("chatSessionTitle"),
     chatContainer: document.getElementById("chatContainer"),
     welcomeScreen: document.getElementById("welcomeScreen"),
@@ -43,11 +44,25 @@ document.addEventListener("DOMContentLoaded", () => {
 });
 
 async function initApp() {
+    // Đồng bộ dropdown với state
+    if (elements.userSelect) {
+        elements.userSelect.value = state.userId;
+    }
     setupEventListeners();
     await loadSessions();
 }
 
 function setupEventListeners() {
+    // User Switcher
+    if (elements.userSelect) {
+        elements.userSelect.addEventListener("change", async (e) => {
+            state.userId = e.target.value;
+            localStorage.setItem("legal_user_id", state.userId);
+            state.currentSessionId = null;
+            await loadSessions();
+        });
+    }
+
     // Input & Send button
     elements.chatInput.addEventListener("input", handleInputChange);
     elements.chatInput.addEventListener("keydown", handleInputKeydown);
