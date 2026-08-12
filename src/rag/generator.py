@@ -5,7 +5,8 @@ Tự động suy luận pháp lý 3 bước: Căn cứ -> Phân tích -> Kết l
 import os
 import re
 from pathlib import Path
-from typing import Any
+from threading import Thread
+from typing import Any, Generator, Optional
 
 # Tự động trỏ cache HuggingFace sang ổ D (nếu có) để tránh đầy ổ C
 if "HF_HOME" not in os.environ and Path("D:/").exists():
@@ -17,7 +18,7 @@ if not torch.cuda.is_available():
     cpu_cores = os.cpu_count() or 4
     torch.set_num_threads(min(cpu_cores, 8))
 
-from transformers import AutoModelForCausalLM, AutoTokenizer, TextStreamer
+from transformers import AutoModelForCausalLM, AutoTokenizer, TextIteratorStreamer, TextStreamer
 
 
 class OutputSanitizer:
@@ -155,3 +156,72 @@ class LegalGenerator:
 
         sanitized_response, _ = OutputSanitizer.sanitize(response_text)
         return sanitized_response
+
+    def stream_response(
+        self,
+        query: str,
+        retrieved_docs: list[dict[str, Any]],
+        chat_history: Optional[list[dict[str, str]]] = None
+    ) -> Generator[str, None, None]:
+        """Stream từng token câu trả lời qua Generator (phục vụ Server-Sent Events)."""
+        # 1. Kiểm tra Out-of-Domain
+        if not retrieved_docs or retrieved_docs[0].get("reranker_score", 0.0) < self.MIN_RERANKER_CONFIDENCE:
+            yield (
+                "Kính gửi Quý người dùng,\n\n"
+                "Hệ thống đã tra cứu trong kho dữ liệu nhưng **KHÔNG TÌM THẤY** văn bản quy phạm pháp luật phù hợp để giải đáp câu hỏi của bạn.\n"
+                "(Kho dữ liệu hiện tại chưa có văn bản thuộc lĩnh vực bạn đang hỏi).\n\n"
+                "⚠️ **KHUYẾN NGHỊ:**\n"
+                "Hệ thống từ chối đưa ra kết luận để tránh cung cấp thông tin sai lệch (Hallucination). "
+                "Vui lòng bổ sung thêm văn bản luật tương ứng vào cơ sở dữ liệu."
+            )
+            return
+
+        # 2. Đảm bảo model đã load
+        if not self._is_loaded:
+            self.load_model()
+
+        # 3. Đóng gói context
+        context_parts = []
+        for i, item in enumerate(retrieved_docs[:3], 1):
+            doc = item["document"]
+            meta = doc.metadata or {}
+            title = meta.get("title", "Văn bản")
+            symbol = meta.get("so_ky_hieu", "")
+            context_parts.append(f"--- [VĂN BẢN {i}: {title} (Số: {symbol})] ---\n{doc.page_content.strip()}")
+        context_str = "\n\n".join(context_parts)
+
+        messages = [{"role": "system", "content": self.SYSTEM_PROMPT}]
+
+        # Hỗ trợ multi-turn chat history nếu có
+        if chat_history:
+            for turn in chat_history[-4:]:  # Lấy tối đa 2 cặp hỏi-đáp gần nhất
+                messages.append({"role": turn.get("role", "user"), "content": turn.get("content", "")})
+
+        messages.append({
+            "role": "user",
+            "content": (
+                f"[BỐI CẢNH VĂN BẢN PHÁP LUẬT]:\n{context_str}\n\n"
+                f"[CÂU HỎI]:\n{query}\n\n"
+                f"Hãy trả lời theo đúng cấu trúc 3 phần (Căn cứ pháp lý -> Phân tích & đối chiếu -> Kết luận):"
+            )
+        })
+
+        text_prompt = self.tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+        model_inputs = self.tokenizer([text_prompt], return_tensors="pt").to(self.device)
+
+        streamer = TextIteratorStreamer(self.tokenizer, skip_prompt=True, skip_special_tokens=True)
+        generation_kwargs = dict(
+            **model_inputs,
+            max_new_tokens=600,
+            do_sample=False,
+            repetition_penalty=1.1,
+            streamer=streamer
+        )
+
+        thread = Thread(target=self.model.generate, kwargs=generation_kwargs)
+        thread.start()
+
+        for new_text in streamer:
+            yield new_text
+
+        thread.join()
