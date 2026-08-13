@@ -41,11 +41,14 @@ class PromptGuard:
         (re.compile(r"(hãy\s+đóng\s+vai|tưởng\s+tượng\s+bạn\s+là|giả\s+sử\s+bạn\s+là)\s+.*(không\s+bị\s+ràng\s+buộc|tội\s+phạm|hacker|hư\s+cấu|không\s+tuân\s+theo\s+luật)", re.I), "Hypothetical Roleplay Hijack (VI)", 0.92),
         (re.compile(r"(act\s+as|pretend\s+you\s+are|imagine\s+you\s+are)\s+.*(unrestricted|lawless|evil|villain|fictional\s+character\s+who\s+ignores\s+laws)", re.I), "Hypothetical Roleplay Hijack (EN)", 0.92),
         
-        # 4. Kỹ thuật Lắc léo: Hypothetical / Academic Shield (Núp bóng nghiên cứu học thuật, viết kịch bản phim trốn luật)
+        # 4. Kỹ thuật Yêu cầu Hành vi Vi phạm Pháp luật (Trực tiếp & Núp bóng học thuật)
+        (re.compile(r"(chỉ|hướng\s+dẫn|dạy|bày|tìm|làm\s+sao\s+để|cách\s+nào\s+để|cách|tôi\s+cần\s+cách).*(trốn\s+(thuế|thế)|lách\s+luật|rửa\s+tiền|hối\s+lộ|làm\s+giả\s+(giấy\s+tờ|con\s+dấu|hồ\s+sơ|sổ\s+đỏ)|qua\s+mặt\s+(công\s+an|thanh\s+tra|cơ\s+quan)|tống\s+tiền|buôn\s+lậu)", re.I), "Direct Illegal Act Assistance (VI)", 0.95),
+        (re.compile(r"(how\s+to|teach\s+me|guide\s+me|ways\s+to).*(evade\s+tax|launder\s+money|bribe|bypass\s+law|forge\s+documents|smuggle)", re.I), "Direct Illegal Act Assistance (EN)", 0.95),
         (re.compile(r"(đây\s+chỉ\s+là\s+.*(tiểu\s+thuyết|kịch\s+bản|bài\s+tập|nghiên\s+cứu)|chỉ\s+để\s+nghiên\s+cứu).*(chỉ\s+cách|làm\s+sao\s+để|hướng\s+dẫn|cách).*(trốn\s+thuế|lách\s+luật|rửa\s+tiền|hối\s+lộ|qua\s+mặt|làm\s+giả)", re.I), "Academic/Fiction Obfuscation (VI)", 0.95),
         (re.compile(r"(for\s+.*(educational|research|fictional|academic)\s+purposes).*(how\s+to|explain\s+how|ways\s+to).*(evade\s+tax|launder\s+money|bribe|bypass\s+law|forge)", re.I), "Academic/Fiction Obfuscation (EN)", 0.95),
 
-        # 5. Kỹ thuật Lắc léo: Rule Negation & Gaslighting (Khẳng định luật pháp đã thay đổi / ra lệnh mới)
+        # 5. Kỹ thuật Lắc léo: Rule Negation & Gaslighting (Khẳng định luật pháp đã thay đổi / Yêu cầu không cần luật)
+        (re.compile(r"(không\s+cần\s+(theo\s+)?luật|bỏ\s+qua\s+luật|không\s+tuân\s+thủ\s+luật|làm\s+trái\s+luật|vượt\s+mặt\s+luật|bất\s+chấp\s+luật|không\s+cần\s+pháp\s+luật)", re.I), "Law Negation Override", 0.92),
         (re.compile(r"(tất\s+cả\s+luật\s+pháp\s+hiện\s+nay\s+đã\s+bị\s+hủy\s+bỏ|quy\s+tắc\s+cũ\s+không\s+còn\s+hiệu\s+lực|chính\s+phủ\s+đã\s+cho\s+phép)", re.I), "Legal Gaslighting (VI)", 0.90),
         (re.compile(r"(all\s+laws\s+are\s+now\s+void|previous\s+rules\s+are\s+cancelled|emergency\s+override\s+code)", re.I), "Emergency Override Gaslighting (EN)", 0.92),
 

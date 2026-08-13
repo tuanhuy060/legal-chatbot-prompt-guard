@@ -53,7 +53,7 @@ class OutputSanitizer:
 class LegalGenerator:
     """Động cơ Tạo câu trả lời pháp lý bằng Não LLM Qwen 2.5 với Legal CoT Reasoning."""
 
-    MODEL_NAME = "Qwen/Qwen2.5-1.5B-Instruct"
+    MODEL_NAME = "Qwen/Qwen2.5-0.5B-Instruct"
     MIN_RERANKER_CONFIDENCE = 0.500
 
     SYSTEM_PROMPT = (
@@ -148,7 +148,7 @@ class LegalGenerator:
         with torch.no_grad():
             generated_ids = self.model.generate(
                 **model_inputs,
-                max_new_tokens=600,
+                max_new_tokens=1000,
                 do_sample=False,
                 repetition_penalty=1.1,
                 streamer=streamer
@@ -217,7 +217,7 @@ class LegalGenerator:
         streamer = TextIteratorStreamer(self.tokenizer, skip_prompt=True, skip_special_tokens=True)
         generation_kwargs = dict(
             **model_inputs,
-            max_new_tokens=350,
+            max_new_tokens=1000,
             do_sample=False,
             repetition_penalty=1.1,
             streamer=streamer

@@ -50,7 +50,11 @@ guard = PromptGuard()
 retriever = LegalRetriever(db_dir="D:/chroma_legal_db" if Path("D:/chroma_legal_db").exists() else "chroma_legal_db")
 reranker = LegalReranker()
 generator = LegalGenerator()
-print("[Server] Hệ thống đã sẵn sàng phục vụ!")
+
+# Tự động nạp sẵn (Preload/Warm-up) não LLM Qwen 2.5 ngay khi khởi động server
+print("[Server] Đang nạp sẵn mô hình LLM Qwen 2.5 vào bộ nhớ...")
+generator.load_model()
+print("[Server] Toàn bộ hệ thống đã sẵn sàng 100% phục vụ người dùng!")
 
 
 # ==========================================
@@ -137,7 +141,7 @@ async def get_system_stats():
         "vector_chunks": collection_count,
         "embedding_model": "BAAI/bge-m3",
         "reranker_model": "BAAI/bge-reranker-v2-m3",
-        "llm_model": "Qwen/Qwen2.5-1.5B-Instruct",
+        "llm_model": "Qwen/Qwen2.5-0.5B-Instruct",
         "recent_blocked_attacks": len(security_logs)
     }
 
